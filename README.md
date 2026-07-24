@@ -1,6 +1,6 @@
 # PHP Authentication Class
 
-SunAuth is an advanced PHP authentication class.
+SunAuth is an advanced yet lightweight PHP authentication class that you can easily integrate into your small and medium sized projects.
 
 The goal of this class is to let you; authenticate users/admins against your own database table, open and track database backed sessions, and secure the login flow with brute force protection, remember-me tokens, role checks, password reset, and two factor authentication.
 
@@ -21,7 +21,7 @@ The goal of this class is to let you; authenticate users/admins against your own
 ### Installation
 
 To utilize this class, first import SunDB.php and SunAuth.php into your project, and require them.
-SunAuth requires PHP 7.4+ and the SunDB class to work.
+SunAuth requires PHP 7.4+ and SunDB class to work.
 
 ```php
 require_once ('SunDB.php');
