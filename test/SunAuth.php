@@ -9,7 +9,7 @@
  * @copyright Copyright (c) 2025, Sunhill Technology <www.sunhillint.com>
  * @license   https://opensource.org/licenses/lgpl-3.0.html The GNU Lesser General Public License, version 3.0
  * @link      https://github.com/msbatal/PHP-Authentication-Class
- * @version   1.0.0
+ * @version   1.0.1
  */
 
 class SunAuth
@@ -74,14 +74,11 @@ class SunAuth
     private $lastError = '';
 
     /**
-     * @param object|array|null $db     SunDB object, PDO object, or connection params array
-     * @param array $config             configuration overrides
+     * @param object|array|null $db
+     * @param array $config
      * @throws exception
      */
     public function __construct($db = null, $config = []) {
-        set_exception_handler(function($exception) {
-            echo '<b>[SunClass] Exception:</b> ' . $exception->getMessage();
-        });
         if ($db instanceof SunDB) { // already a SunDB instance
             $this->db = $db;
         } else if ($db instanceof PDO) { // wrap a raw PDO connection with SunDB
@@ -188,7 +185,7 @@ class SunAuth
     /**
      * Check whether a column exists on the user table (cached, feature flags)
      *
-     * @param string $key column map key (role, status, twofa, ...)
+     * @param string $key
      * @return boolean
      */
     private function hasColumn($key = null) {
@@ -285,9 +282,9 @@ class SunAuth
     /**
      * Register a new user (hashes the password, prevents duplicates)
      *
-     * @param array $data associative column => value data (must contain the password)
+     * @param array $data
      * @throws exception
-     * @return integer|boolean inserted id on success, false on duplicate
+     * @return integer|boolean
      */
     public function register($data = []) {
         if (!is_array($data) || count($data) <= 0) {
@@ -312,7 +309,7 @@ class SunAuth
      *
      * @param string $identifier
      * @param string $password
-     * @param boolean $remember set a persistent remember-me cookie
+     * @param boolean $remember
      * @return boolean
      */
     public function login($identifier = null, $password = null, $remember = false) {
@@ -369,8 +366,8 @@ class SunAuth
      * Create a database backed session and store the raw token in $_SESSION
      *
      * @param integer $userId
-     * @param integer $pending 1 while waiting for 2FA verification
-     * @return string raw session token
+     * @param integer $pending
+     * @return string
      */
     private function createSession($userId = null, $pending = 0) {
         $this->startSession();
@@ -743,7 +740,7 @@ class SunAuth
      * Create a password reset token for an identifier
      *
      * @param string $identifier
-     * @return string|boolean raw token on success, false when the user is unknown
+     * @return string|boolean
      */
     public function createResetToken($identifier = null) {
         $user = $this->getUserBy($this->config['identifier'], $identifier);
