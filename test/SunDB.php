@@ -9,7 +9,7 @@
  * @copyright Copyright (c) 2020, Sunhill Technology <www.sunhillint.com>
  * @license   https://opensource.org/licenses/lgpl-3.0.html The GNU Lesser General Public License, version 3.0
  * @link      https://github.com/msbatal/PHP-PDO-Database-Class
- * @version   3.2.2
+ * @version   3.5.0
  */
 
 class SunDB
@@ -26,7 +26,7 @@ class SunDB
         'dbname' => null,
         'username' => null,
         'password' => null,
-        'charset' => 'utf8'
+        'charset' => 'utf8mb4'
     ];
 
     /**
@@ -165,9 +165,6 @@ class SunDB
      * @param string $charset
      */
     public function __construct($type = null, $host = null, $username = null, $password = null, $dbname = null, $port = null, $charset = null) {
-        set_exception_handler(function($exception) {
-            echo '<b>[SunClass] Exception:</b> ' . $exception->getMessage();
-        });
         if (is_array($type)) { // connect to db using parameters in the array
             $this->connectionParams = $type;
         } else if (is_object($type)) { // connect to db using pdo object
@@ -192,12 +189,21 @@ class SunDB
         if (empty($this->connectionParams['driver'])) {
             throw new Exception('Database Driver is not set.');
         }
+        $options = [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_ORACLE_NULLS       => PDO::NULL_EMPTY_STRING,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ];
+        if ($this->connectionParams['driver'] == 'mysql') {
+            $options[PDO::MYSQL_ATTR_USE_BUFFERED_QUERY] = true;
+        }
         if ($this->connectionParams['driver'] == 'sqlite') {
             $connectionString = 'sqlite:' . $this->connectionParams['url'];
-            $this->pdo = new PDO($connectionString);
+            $this->pdo = new PDO($connectionString, null, null, $options);
         } else if ($this->connectionParams['driver'] == 'mssql') {
             $connectionString = 'sqlsrv:Server=' . $this->connectionParams['host'] . ';Database=' . $this->connectionParams['dbname'];
-            $this->pdo = new PDO($connectionString, $this->connectionParams['username'], $this->connectionParams['password']);
+            $this->pdo = new PDO($connectionString, $this->connectionParams['username'], $this->connectionParams['password'], $options);
         } else {
             $connectionString = $this->connectionParams['driver'] . ':';
             $connectionParams = ['host', 'dbname', 'port', 'charset'];
@@ -207,18 +213,7 @@ class SunDB
                 }
             }
             $connectionString = rtrim($connectionString, ';');
-            $this->pdo = new PDO($connectionString, $this->connectionParams['username'], $this->connectionParams['password']);
-        }
-        $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        $this->pdo->setAttribute(PDO::ATTR_CURSOR, PDO::CURSOR_SCROLL);
-        $this->pdo->setAttribute(PDO::ATTR_ORACLE_NULLS, PDO::NULL_EMPTY_STRING);
-        $this->pdo->setAttribute(PDO::ATTR_PERSISTENT, false);
-        $this->pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
-        if ($this->connectionParams['driver'] == 'mysql') {
-          $this->pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
-          $this->pdo->setAttribute(PDO::MYSQL_ATTR_FOUND_ROWS, true);
-          $this->pdo->setAttribute(PDO::MYSQL_ATTR_INIT_COMMAND, 'SET CHARACTER SET utf8, NAMES utf8');
+            $this->pdo = new PDO($connectionString, $this->connectionParams['username'], $this->connectionParams['password'], $options);
         }
         if (!($this->pdo instanceof PDO)) {
             throw new Exception('This object is not an instance of PDO.');
@@ -422,7 +417,7 @@ class SunDB
      * Build a bulk INSERT part of the query (multiple rows in one statement)
      *
      * @param string $table
-     * @param array $rows array of associative arrays, all with the same keys
+     * @param array $rows
      * @throws exception
      * @return object
      */
@@ -476,7 +471,6 @@ class SunDB
         }
         foreach ($data as $key => $value) {
             $keys[] = '`' . $this->validateIdentifier($key) . '`=?';
-            if ($value === NULL) {$value = '';}
             $this->values[] = $value;
         }
         $keys = implode(',', $keys);
@@ -573,6 +567,56 @@ class SunDB
     }
 
     /**
+     * Build a parenthesized group of conditions inside the WHERE clause
+     *
+     * @param callable $callback
+     * @param string $condition
+     * @throws exception
+     * @return object
+     */
+    public function whereGroup($callback = null, $condition = 'and') {
+        if (!is_callable($callback)) {
+            throw new Exception('Where Group clause must contain a callable.');
+        }
+        $outerWhere = $this->where; // pause the outer conditions being built
+        $outerWhereValues = $this->whereValues;
+        $this->where = [];
+        $this->whereValues = [];
+
+        $callback($this); // fills the paused-empty arrays above via the normal where()/orWhere()
+
+        $groupWhere = $this->where;
+        $groupValues = $this->whereValues;
+        $this->where = $outerWhere; // resume the outer conditions
+        $this->whereValues = $outerWhereValues;
+
+        $count = 0;
+        $clean = [];
+        foreach ($groupWhere as $fragment) { // strip the group's own leading and/or, same as run() does for the outer query
+            $count++;
+            $clean[] = $count == 1 ? ltrim(ltrim($fragment, 'or'), 'and') : $fragment;
+        }
+        $sql = implode('', $clean);
+        if ($sql === '') {
+            return $this; // callback added nothing (e.g. an empty "in" array) - skip, don't emit "and ()"
+        }
+        $this->where[] = $condition . ' (' . $sql . ') ';
+        $this->whereValues = array_merge($this->whereValues, $groupValues);
+        return $this;
+    }
+
+    /**
+     * Shortcut for whereGroup(..., 'or')
+     *
+     * @param callable $callback
+     * @throws exception
+     * @return object
+     */
+    public function orWhereGroup($callback = null) {
+        return $this->whereGroup($callback, 'or');
+    }
+
+    /**
      * Add a "column IS NULL" condition
      *
      * @param string $column
@@ -611,7 +655,7 @@ class SunDB
     }
 
     /**
-     * Add a raw SQL WHERE fragment, not validated — never pass user input into it
+     * Add a raw SQL WHERE
      *
      * @param string $sql
      * @param string $condition
@@ -783,8 +827,7 @@ class SunDB
     }
 
     /**
-     * Run a COUNT(*) query for the current table/joins/where (ignoring order/limit), store and return it
-     * Used internally by paginate(), but also callable on its own for a filtered count without pagination
+     * Run a COUNT(*) query
      *
      * @return integer
      */
@@ -810,8 +853,7 @@ class SunDB
     }
 
     /**
-     * Apply pagination — runs count() first (same table/joins/where, ignoring order/limit),
-     * stored for totalCount(), then narrows the query to the given page via limit()
+     * Apply pagination
      *
      * @param integer $page
      * @param integer $perPage
@@ -827,7 +869,7 @@ class SunDB
     }
 
     /**
-     * Return the total row count from the last count() or paginate() call
+     * Return the total row count
      *
      * @return integer
      */
@@ -896,7 +938,7 @@ class SunDB
     }
 
     /**
-     * Return whether at least one row matches the built query (uses limit 0,1, doesn't fetch everything)
+     * Return whether at least one row matches the built query
      *
      * @throws exception
      * @return boolean
@@ -1009,12 +1051,23 @@ class SunDB
      * @param string $fileName
      * @param string $action
      * @param array $excludeTables
+     * @param array $includeTables
      * @throws exception
      * @return string|file
      */
-    public function backup($fileName = null, $action = null, $excludeTables = []) {
+    public function backup($fileName = null, $action = null, $excludeTables = [], $includeTables = []) {
         if ($this->connectionParams['driver'] == 'sqlite') {
             throw new Exception('SQLite database backup is not allowed. Download "'.$this->connectionParams['url'].'" file directly.');
+        }
+        @set_time_limit(0);
+        $curMem = trim((string) ini_get('memory_limit'));
+        if ($curMem !== '' && $curMem !== '-1') {
+            $unit  = strtolower(substr($curMem, -1));
+            $bytes = (int) $curMem;
+            if      ($unit === 'g') { $bytes *= 1073741824; }
+            else if ($unit === 'm') { $bytes *= 1048576; }
+            else if ($unit === 'k') { $bytes *= 1024; }
+            if ($bytes < 536870912) { @ini_set('memory_limit', '512M'); }
         }
         if (empty($fileName)) {$fileName = 'SunDB-Backup-'.date("dmYHis").'.sql';} else {$fileName .= '.sql';} // define file name
         if (empty($action)) {$action = 'save';} // default action
@@ -1022,35 +1075,38 @@ class SunDB
             header('Content-disposition: attachment; filename='.$fileName);
             header('Content-type: application/force-download'); // header for download
         }
-        $show = $this->pdo()->query('show tables')->fetchAll(); // list all tables
-        $tables = [];
-        foreach ($show as $rows) {
-            $content = [];
-            $table = reset($rows);
-            if (!in_array($table, $excludeTables)) {
-                $create = $this->pdo()->query("show create table `$table`")->fetchAll(); // list table structures
-                $content[] = $create[0]['Create Table'].";\n"; // select Create Table structure
-                $query = $this->pdo()->prepare("select * from `$table`"); // list all values in selected table
-                $query->execute(array());
-                $select = $query->fetchAll();
-                if ($query->rowCount() > 0) {
-                    foreach ($select as $row) {
-                        if (count($row) < 1) {continue;}
-                        $header = "INSERT INTO `$table` VALUES ('"; // add Insert query
-                        $body = implode("', '", array_values($row)); // add listed values
-                        $footer = "');";
-                        $content[] = $header.$body.$footer;
+        $save  = ($action == 'save');
+        $pdo   = $this->pdo();
+        $show  = $pdo->query('show tables')->fetchAll(); // table list is small
+        $unbuffered = ($this->connectionParams['driver'] == 'mysql');
+        if ($unbuffered) { $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false); }
+        $emit = function ($text) use ($save) {
+            echo $save ? $text : nl2br($text);
+            if (function_exists('flush')) { @ob_flush(); @flush(); }
+        };
+        try {
+            $emit("# SunDB Database Backup File\n# Backup Date: ".date("Y-m-d H:i:s")."\n# Backup File: ".$fileName."\n\n\n");
+            $first = true;
+            foreach ($show as $rows) {
+                $table = reset($rows);
+                if (!empty($includeTables) && !in_array($table, $includeTables)) {continue;} // only keep requested tables
+                if (in_array($table, $excludeTables)) {continue;}
+                $create = $pdo->query("show create table `$table`")->fetchAll(); // table structure
+                if (empty($create[0]['Create Table'])) {continue;}
+                $emit(($first ? '' : "\n\n").$create[0]['Create Table'].";\n");
+                $first = false;
+                $stmt = $pdo->query("select * from `$table`"); // stream rows one by one
+                while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $vals = [];
+                    foreach ($row as $v) {
+                        $vals[] = ($v === null) ? 'NULL' : $pdo->quote((string) $v);
                     }
-                    if (count($content) < 1) {continue;}
-                    $tables[$table] = implode("\n", $content);
+                    $emit("INSERT INTO `$table` VALUES (".implode(', ', $vals).");\n");
                 }
+                $stmt->closeCursor();
             }
-        }
-        if ($action == 'save') {
-            echo "# SunDB Database Backup File\n# Backup Date: ".date("Y-m-d H:i:s")."\n# Backup File: ".$fileName."\n\n\n";
-            echo implode("\n\n", array_values($tables));
-        } else { // if selected the Show method
-            echo nl2br(implode('<br><br>', array_values($tables)));
+        } finally {
+            if ($unbuffered) { $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true); }
         }
     }
 
