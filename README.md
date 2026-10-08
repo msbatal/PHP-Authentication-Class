@@ -31,10 +31,10 @@ require_once ('SunAuth.php');
 > **Note:** SunDB is a separate dependency and is **not** bundled in this repository. Download `SunDB.php` from its own GitHub repository and add it to your project alongside `SunAuth.php`:
 > <a href="https://github.com/msbatal/PHP-PDO-Database-Class" target="_blank">https://github.com/msbatal/PHP-PDO-Database-Class</a>
 
-Then run the support tables SQL once (creates the `sun_sessions`, `sun_login_attempts`, `sun_remember_tokens`, and `sun_password_resets` tables). Your own user table is not created here.
+Then create the support tables once with the `install()` method (creates the `sun_sessions`, `sun_login_attempts`, `sun_remember_tokens`, and `sun_password_resets` tables). It honors the `prefix`, `charset` and `collation` options, so you do not need any SQL file. Your own user table is not created here.
 
 ```php
-// import SunAuth.sql into your database (via phpMyAdmin, mysql client, etc.)
+$auth->install(); // safe to run repeatedly
 ```
 
 ### Initialization
@@ -279,6 +279,8 @@ $auth->regenerate();                // regenerate the PHP session id (session fi
 | `identifier` | `email` | Column used to log in with |
 | `activeStatus` | `1` | Value of the `status` column for an active account |
 | `prefix` | `sun_` | Prefix for the support tables |
+| `charset` | `utf8mb4` | Support table charset used by `install()` |
+| `collation` | empty | Support table collation used by `install()` (empty = server default) |
 | `sessionLifetime` | `7200` | Active session lifetime (seconds) |
 | `rememberLifetime` | `1209600` | Remember-me lifetime (seconds, 14 days) |
 | `resetLifetime` | `3600` | Password reset token lifetime (seconds) |
